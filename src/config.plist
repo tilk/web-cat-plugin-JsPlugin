@@ -1,0 +1,123 @@
+{
+    name             = JsPlugin;
+    version.major    = 0;
+    version.minor    = 0;
+    version.revision = 0;
+    version.date     = 20180218;
+    requires         = ( PerlForPlugins );
+    license          = "GNU Affero General Public License v.3";
+    license.url      = "http://www.gnu.org/copyleft/agpl.html";
+    copyright        = "(c) 2019 University of Wroclaw";
+    executable = execute.pl;
+    interpreter.prefix = "${PerlForPlugins.perl.exe}";
+    author     = "Marek Materzok (marek.materzok@cs.uni.wroc.pl)";
+    authorUid  = tilk;
+    languages  = ( { name = "JavaScript"; version = ""; } );
+    description = "This JavaScript execution script is designed to execute the
+student program against a set of student-provided tests and also against a
+set of instructor-provided tests (reference tests).";
+    timeoutMultiplier = 2;
+    timeoutInternalPadding = 400;
+    assignmentOptions = (
+        {
+            property    = instructorUnitTest;
+            type        = fileOrDir;
+            fileTypes   = ( js );
+            name        = "Instructor Reference Tests";
+            description =
+  "JavaScript unit tester[s] (file or directory of files) for testing the submitted
+  classes. If you select a directory, it should contain jest tests, all of which will
+  be used.";
+        },
+        {
+            property    = localFiles;
+            type        = fileOrDir;
+            name        = "Data Files for Student";
+            description =
+  "A file (or a directory of files) to place in the student's current working
+  directory when running his/her tests and when running reference tests.  The
+  file you select (or the entire contents of the directory you select) will be
+  copied into the current working directory during grading so that
+  student-written and instructor-written test cases can read from and/or
+  write to the file(s).  The default is to copy no files.";
+        }
+    );
+    optionCategories = (
+        "Scoring Settings",
+        "Feedback Settings",
+        "Script Developer"
+    );
+    options = (
+        {
+            property    = hintsLimit;
+            disable     = false;
+            type        = integer;
+            default     = 3;
+            name        = "Hints Limit";
+            category    = "Feedback Settings";
+            description =
+  "Maximum number of hints the student will receive from
+  failed reference tests.";
+        },
+        {
+            property    = enableStudentTests;
+            type        = boolean;
+            default     = false;
+            name        = "Student Unit Tests Enabled/Required";
+            category    = "Scoring Settings";
+            description =
+  "Enabling this option activates the student test option. That means that
+  students must submit their own tests. Disabled, this option supports non-TDD
+  testing using only instructor tests. Enabled, this activates student TDD mode.";
+        },
+        {
+            property    = allStudentTestsMustPass;
+            type        = boolean;
+            default     = false;
+            name        = "All Student Tests Must Pass";
+            category    = "Scoring Settings";
+            description =
+  "If you are truly following test-driven development practices, then no code
+  is ever released until all of its unit tests pass. If this option is set to
+  true, students will not receive a non-zero score or receive further
+  assessment feedback unless all student tests pass. If this option is not
+  set, then students may continue to proceed even if some student-written
+  tests fail. The student's correctness/testing score is multiplied by the
+  proportion of their tests that pass. Should also set
+  \"Student Unit Tests Enabled/Required\".";
+        },
+        {
+            property    = debug;
+            type        = integer;
+            advanced    = true;
+            default     = 0;
+            name        = "Debug Level";
+            category    = "Script Developer";
+            description =
+  "Set to a non-zero value for the script to produce debugging output (the
+  larger the number, the greater the detail, up to about 5).  Debugging output
+  on each grading script run will be e-mailed to the instructor.";
+        }
+    );
+    globalOptions = (
+        {
+            property    = nodeCmd;
+            type        = shortText;
+            name        = "Node Interpreter Command";
+            default     = "node";
+            size = 20;
+            description =
+  "The name of the node.js interpreter to use.  The default is \"node\".";
+        },
+        {
+            property    = nodeModules;
+            type        = shortText;
+            name        = "Node modules directory";
+            default     = "";
+            size = 200;
+            description =
+  "The name of the node_modules directory to use.  It should have jest installed.";
+        }
+    );
+}
+

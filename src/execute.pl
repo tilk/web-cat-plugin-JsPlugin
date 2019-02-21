@@ -13,7 +13,8 @@ use Config::Properties::Simple;
 use Proc::Background;
 #use Web_CAT::Beautifier;    ## Soon, I hope. -sb
 use Web_CAT::FeedbackGenerator;
-use Web_CAT::Utilities;
+use Web_CAT::Utilities
+    qw(copyHere confirmExists addReportFileWithStyle);
 
 #=============================================================================
 # Bring command line args into local variables for easy reference
@@ -42,8 +43,14 @@ my $max_score    = $cfg->getProperty('max.score.correctness', 0 );
 
 my @beautifierIgnoreFiles = ();
 
+my $scriptLog_relative      = "script.log";
+my $scriptLog               = File::Spec->join($resultDir, $scriptLog_relative);
+
 my $instrOutput_relative    = "instructor-unittest-out.txt";
 my $instrOutput             = File::Spec->join($resultDir, $instrOutput_relative);
+
+my $instrReport_relative    = "instructor-unittest-report.html";
+my $instrReport             = File::Spec->join($resultDir, $instrReport_relative);
 
 #=============================================================================
 # Script startup
@@ -53,6 +60,10 @@ chdir($workingDir);
 print "working dir set to $workingDir\n" if $debug;
 
 $ENV{'NODE_PATH'} = $nodeModules;
+
+#-------------------------------------------------------
+# Path manipulation utilities
+#-------------------------------------------------------
 
 sub dirOf {
     my $path = shift;
@@ -64,6 +75,56 @@ sub fileOf {
     my $path = shift;
     my ($volume, $directories, $file) = File::Spec->splitpath($path);
     return $file;
+}
+
+#-------------------------------------------------------
+# Simple logging facility
+#-------------------------------------------------------
+
+sub adminLog
+{
+    open(SCRIPTLOG, ">>$scriptLog") ||
+        die "Cannot open file for output '$scriptLog': $!";
+    print SCRIPTLOG join("\n", @_), "\n";
+    close(SCRIPTLOG);
+}
+
+#-------------------------------------------------------
+# Reporting errors back to student
+#-------------------------------------------------------
+
+my $expSectionId = 0;
+
+sub reportError
+{
+    my $rpt_absolute_path = shift;
+    my $rpt_relative_path = shift;
+    my $rpt_title         = shift;
+    my $rpt_message       = shift;
+
+    my $errorFeedbackGenerator =
+        new Web_CAT::FeedbackGenerator($rpt_absolute_path);
+    $errorFeedbackGenerator->startFeedbackSection(
+        $rpt_title,
+        ++$expSectionId,
+        0);
+    $errorFeedbackGenerator->print($rpt_message);
+    $errorFeedbackGenerator->endFeedbackSection;
+
+    # Close down this report
+    $errorFeedbackGenerator->close;
+    addReportFileWithStyle($cfg, $rpt_relative_path, 'text/html', 1);
+}
+
+#-------------------------------------------------------
+# HTML escaping
+#-------------------------------------------------------
+
+sub htmlEscape
+{
+    my $str = shift;
+    $str = Web_CAT::HTML::Entities::encode_entities($str, "<>&");
+    return $str;
 }
 
 #-------------------------------------------------------
@@ -79,13 +140,13 @@ if (!defined($instrTest))
 
 my $instrTestName = fileOf($instrTest);
 
-my $instrSrc = Web_CAT::Utilities::confirmExists($scriptData, $instrTest);
+my $instrSrc = confirmExists($scriptData, $instrTest);
 print "instrSrc = $instrSrc\n" if $debug;
 
 if (-f $instrSrc)
 {
     print "Instructor unit test is a file\n" if $debug;
-    Web_CAT::Utilities::copyHere($instrSrc, dirOf($instrSrc), \@beautifierIgnoreFiles);
+    copyHere($instrSrc, dirOf($instrSrc), \@beautifierIgnoreFiles);
 }
 else
 {
@@ -98,17 +159,17 @@ else
 
 if (defined $localFiles && $localFiles ne "")
 {
-    my $lf = Web_CAT::Utilities::confirmExists($scriptData, $localFiles);
+    my $lf = confirmExists($scriptData, $localFiles);
     print "localFiles = $lf\n" if $debug;
     if (-d $lf)
     {
         print "localFiles is a directory\n" if $debug;
-        Web_CAT::Utilities::copyHere($lf, $lf, \@beautifierIgnoreFiles);
+        copyHere($lf, $lf, \@beautifierIgnoreFiles);
     }
     else
     {
         print "localFiles is a single file\n" if $debug;
-        Web_CAT::Utilities::copyHere($lf, dirOf($lf), \@beautifierIgnoreFiles);
+        copyHere($lf, dirOf($lf), \@beautifierIgnoreFiles);
     }
 }
 
@@ -137,8 +198,10 @@ close(JESTCONFIG);
 my $score = 1.0;
 
 sub run_test {
-    my $testfile = shift;
-    my $outfile  = shift;
+    my $testfile  = shift;
+    my $outfile   = shift;
+	my $report    = shift;
+	my $reportRel = shift;
 
     my $cmdline = $Web_CAT::Utilities::SHELL
         . "$node $nodeModules/.bin/jest $testfile --color=false > /dev/null 2> $outfile";
@@ -152,7 +215,11 @@ sub run_test {
     print "exitcode = $exitcode, timeout_status = $timeout_status\n" if $debug;
 
     if ($timeout_status) {
-        # TODO logging and reporting
+        adminLog("Script thinks that a timeout happened.\n" .
+            "Timeout value = $timeout\n");
+		reportError($report, $reportRel, "Test Error Report",
+			"<p><b class=\"warn\">Testing your solution exceeded the "
+			. "allowable time limit for this assignment.</b></p>");
         return 0;
     }
 
@@ -163,6 +230,7 @@ sub run_test {
     my $currentFile;
     my $total = 0;
     my $passed = 0;
+    my @failedTests;
 
     while (<TEST_OUTPUT>)
     {
@@ -173,10 +241,13 @@ sub run_test {
             $valid = 1;
             $currentFile = $2;
         }
-        elsif (m/Tests:[ ]*(?:([0-9]+) failed, )?(?:([0-9]+) passed, )?([0-9]+) total/o) {
+        elsif (m/^Tests:[ ]*(?:([0-9]+) failed, )?(?:([0-9]+) passed, )?([0-9]+) total/o) {
             $passed = defined $2 ? $2 : 0;
             $total = $3;
             print "$passed passed, $total total\n" if $debug;
+        }
+        elsif (m/^[ ]+● (.*)$/o) {
+            push(@failedTests, $1);
         }
 
     }
@@ -184,13 +255,40 @@ sub run_test {
     close(TEST_OUTPUT);
 
     if (!$valid) {
+        adminLog("Results were not parsed correctly.\n");
+		reportError($report, $reportRel, "Test Error Report",
+			"<p><b class=\"warn\">Test suite results were not correctly formatted."
+			. "Please report this to the instructor.</b></p>");
         return 0;
     }
 
-    return ($total > 0) ? $passed / ($total * 1.0) : 0;
+    my $result = ($total > 0) ? $passed / ($total * 1.0) : 0;
+
+	my $feedbackGenerator = new Web_CAT::FeedbackGenerator($report);
+
+    $feedbackGenerator->startFeedbackSection(
+        "Test results",
+        ++$expSectionId,
+        $result == 1 ? 1 : 0);
+    
+    $feedbackGenerator->print("<p>Summary: $passed passed, $total total</p>\n");
+
+    if (@failedTests) {
+        $feedbackGenerator->print("<p>Failed tests:</p><ul>");
+        foreach (@failedTests) {
+            $feedbackGenerator->print("<li>" . htmlEscape($_) . "</li>");
+        }
+        $feedbackGenerator->print("</ul>");
+    }
+    
+    $feedbackGenerator->endFeedbackSection;
+    $feedbackGenerator->close;
+    addReportFileWithStyle($cfg, $reportRel, 'text/html', 1);
+
+    return $result;
 }
 
-$score = run_test($instrTestName, $instrOutput);
+$score = run_test($instrTestName, $instrOutput, $instrReport, $instrReport_relative);
 
 #=============================================================================
 # Update and rewrite properties to reflect status

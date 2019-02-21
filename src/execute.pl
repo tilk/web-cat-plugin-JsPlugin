@@ -52,6 +52,20 @@ my $instrOutput             = File::Spec->join($resultDir, $instrOutput_relative
 chdir($workingDir);
 print "working dir set to $workingDir\n" if $debug;
 
+$ENV{'NODE_PATH'} = $nodeModules;
+
+sub dirOf {
+    my $path = shift;
+    my ($volume, $directories, $file) = File::Spec->splitpath($path);
+    return File::Spec->catpath($volume, $directories, '');
+}
+
+sub fileOf {
+    my $path = shift;
+    my ($volume, $directories, $file) = File::Spec->splitpath($path);
+    return $file;
+}
+
 #-------------------------------------------------------
 # Locate instructor unit test implementation
 #-------------------------------------------------------
@@ -63,21 +77,25 @@ if (!defined($instrTest))
     die "Instructor unit test not defined.";
 }
 
+my $instrTestName = fileOf($instrTest);
+
 my $instrSrc = Web_CAT::Utilities::confirmExists($scriptData, $instrTest);
 print "instrSrc = $instrSrc\n" if $debug;
 
 if (-f $instrSrc)
 {
     print "Instructor unit test is a file\n" if $debug;
-    Web_CAT::Utilities::copyHere($instrSrc, $scriptData, \@beautifierIgnoreFiles);
+    Web_CAT::Utilities::copyHere($instrSrc, dirOf($instrSrc), \@beautifierIgnoreFiles);
 }
 else
 {
     die "Instructor unit test is not a file.";
 }
 
-#-----------------------------------------------
+#-------------------------------------------------------
 # Copy over input/output data files as necessary
+#-------------------------------------------------------
+
 if (defined $localFiles && $localFiles ne "")
 {
     my $lf = Web_CAT::Utilities::confirmExists($scriptData, $localFiles);
@@ -90,9 +108,27 @@ if (defined $localFiles && $localFiles ne "")
     else
     {
         print "localFiles is a single file\n" if $debug;
-        Web_CAT::Utilities::copyHere($lf, $scriptData, \@beautifierIgnoreFiles);
+        Web_CAT::Utilities::copyHere($lf, dirOf($lf), \@beautifierIgnoreFiles);
     }
 }
+
+#-------------------------------------------------------
+# Create jest.config.js
+#-------------------------------------------------------
+
+open(JESTCONFIG, "> jest.config.js");
+
+print JESTCONFIG <<EOF;
+module.exports = {
+    verbose: true,
+    bail: $hintsLimit,
+    globals: {
+        filename: 'toplevel.sv'
+    },
+};
+EOF
+
+close(JESTCONFIG);
 
 #=============================================================================
 # Execute the test suite and collect results
@@ -154,7 +190,7 @@ sub run_test {
     return ($total > 0) ? $passed / ($total * 1.0) : 0;
 }
 
-$score = run_test($instrTest, $instrOutput);
+$score = run_test($instrTestName, $instrOutput);
 
 #=============================================================================
 # Update and rewrite properties to reflect status

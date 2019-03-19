@@ -230,6 +230,7 @@ sub run_test {
     my $currentFile;
     my $total = 0;
     my $passed = 0;
+    my $failedRequired = 0;
     my @failedTests;
 
     while (<TEST_OUTPUT>)
@@ -247,7 +248,10 @@ sub run_test {
             print "$passed passed, $total total\n" if $debug;
         }
         elsif (m/^[ ]+● (.*)$/o) {
-            push(@failedTests, $1);
+            push(@failedTests, $1) if (@failedTests < $hintsLimit);
+            if (m/REQUIRED/o) {
+                $failedRequired = 1;
+            }
         }
 
     }
@@ -262,7 +266,7 @@ sub run_test {
         return 0;
     }
 
-    my $result = ($total > 0) ? $passed / ($total * 1.0) : 0;
+    my $result = $failedRequired ? 0 : ($total > 0) ? $passed / ($total * 1.0) : 0;
 
 	my $feedbackGenerator = new Web_CAT::FeedbackGenerator($report);
 
